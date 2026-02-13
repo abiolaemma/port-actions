@@ -37,15 +37,21 @@ jobs:
             const repoName = '${{ inputs.repository_name }}';
             const repoDescription = '${{ inputs.repo_description }}' || '';
             
-            await github.rest.repos.createInOrg({
-              org: 'abiolaemma2026',
-              name: repoName,
-              description: repoDescription,
-              private: false,
-              auto_init: true
-            });
-            
-            console.log(`Repository ${repoName} created successfully`);
+            try {
+              const response = await github.rest.repos.createInOrg({
+                org: 'abiolaemma2026',
+                name: repoName,
+                description: repoDescription,
+                private: false,
+                auto_init: true
+              });
+              
+              console.log(`✅ Repository ${repoName} created successfully`);
+              console.log(`Repository URL: ${response.data.html_url}`);
+            } catch (error) {
+              console.error(`❌ Failed to create repository: ${error.message}`);
+              throw error;
+            }
 
       - name: Report success to Port
         if: success()
