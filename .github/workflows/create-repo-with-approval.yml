@@ -25,8 +25,6 @@ jobs:
     steps:
       - name: Log Inputs (Debug)
         run: |
-          echo "RepositoryDebug)
-        run: |
           echo "Repository Name: ${{ inputs.repo_name }}"
           echo "Description: ${{ inputs.repo_description }}"
           echo "Private: ${{ inputs.repo_private }}"
@@ -87,6 +85,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO_NAME: ${{ inputs.repo_name }}
+          REPO_DESC: ${{ inputs.repo_description }}
         run: |
           # Clone and initialize
           git clone "https://github.com/abiolaemma2026/$REPO_NAME.git"
@@ -95,7 +94,7 @@ jobs:
           # Create README
           echo "# $REPO_NAME" > README.md
           echo "" >> README.md
-          echo "${{ inputs.repo_description }}" >> README.md
+          echo "$REPO_DESC" >> README.md
           
           # Commit and push
           git config user.name "Port Bot"
