@@ -1,27 +1,41 @@
 name: Create Repository with Approval
-
 on:
   workflow_dispatch:
     inputs:
       repository_name:
-        description: 'Repository name'
         required: true
         type: string
       repo_description:
-        description: 'Repository description'
         required: false
         type: string
       port_context:
-        description: 'Port context'
         required: true
         type: string
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-
 jobs:
-  request-approval:
+  create-repository:
     runs-on: ubuntu-latest
-    # ... rest of your workflow
+    environment: production  # This environment should have protection rules configured
+    steps:
+      - name: Inform Port of workflow start
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ fromJson(inputs.port_context).runId }}
+          logMessage: "Waiting for approval..."
+
+      - name: Create GitHub Repository
+        run: |
+          # Your repository creation logic here
+          echo "Creating repository: ${{ inputs.repository_name }}"
+          
+      - name: Report to Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ fromJson(inputs.port_context).runId }}
+          logMessage: "Repository created successfully"
