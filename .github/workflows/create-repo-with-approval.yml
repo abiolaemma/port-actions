@@ -21,7 +21,10 @@ jobs:
         with:
           script: |
             const title = 'Approval request: ${{ inputs.repository_name }}';
-            const body = 'Repository: ${{ inputs.repository_name }}\n\nDescription: ${{ inputs.repo_description }}\n\nPort context: ${{ inputs.port_context }}\n\nPlease review and approve.';
+            const body = 'Repository: ${{ inputs.repository_name }}\n' +
+              'Description: ${{ inputs.repo_description }}\n' +
+              'Port context: ${{ inputs.port_context }}\n\n' +
+              'Please review and approve.';
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
