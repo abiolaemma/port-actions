@@ -18,13 +18,27 @@ jobs:
     steps:
       - name: Create approval request issue
         uses: actions/github-script@v6
+        env:
+          REPO_NAME: ${{ inputs.repository_name }}
+          REPO_DESC: ${{ inputs.repo_description }}
+          PORT_CONTEXT: ${{ inputs.port_context }}
         with:
           script: |
-            const title = 'Approval request: ${{ inputs.repository_name }}';
-            const body = 'Repository: ${{ inputs.repository_name }}\n' +
-              'Description: ${{ inputs.repo_description }}\n' +
-              'Port context: ${{ inputs.port_context }}\n\n' +
-              'Please review and approve.';
+            const repoName = process.env.REPO_NAME;
+            const repoDesc = process.env.REPO_DESC || 'No description provided';
+            const portContext = process.env.PORT_CONTEXT;
+            
+            const title = `Approval request: ${repoName}`;
+            const body = `**Repository:** ${repoName}
+` +
+              `**Description:** ${repoDesc}
+` +
+              `**Port Context:** \`\`\`json
+${portContext}
+\`\`\`
+\n` +
+              `Please review and approve by approving the deployment in the production environment.`;
+            
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
