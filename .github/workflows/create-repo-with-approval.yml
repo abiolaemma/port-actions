@@ -1,4 +1,4 @@
-name: Create GitHub Repository with Approval
+name: Create GitHub Repository (No Approval)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
         type: string
       port_context:
         description: 'Port context (automatically provided)'
-        required: true
+        required: false
         type: string
 
 jobs:
@@ -28,6 +28,7 @@ jobs:
           echo "Description: ${{ inputs.repo_description }}"
 
       - name: Inform Port - Workflow Started
+        if: inputs.port_context != ''
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -67,11 +68,13 @@ jobs:
               console.log(`✅ Repository created successfully!`);
               console.log(`Repository URL: ${response.data.html_url}`);
               console.log(`Clone URL: ${response.data.clone_url}`);
+              console.log(`Default Branch: ${response.data.default_branch}`);
               
               // Set outputs for later steps
               core.setOutput('repo_url', response.data.html_url);
               core.setOutput('repo_full_name', response.data.full_name);
               core.setOutput('repo_id', response.data.id);
+              core.setOutput('default_branch', response.data.default_branch);
               
               return response.data;
               
@@ -83,13 +86,15 @@ jobs:
                 console.error('Repository might already exist or name is invalid');
               } else if (error.status === 403) {
                 console.error('Permission denied - check your GitHub token permissions');
+              } else if (error.status === 404) {
+                console.error('Organization not found or token lacks access');
               }
               
               throw error;
             }
 
       - name: Inform Port - Repository Created
-        if: success()
+        if: success() && inputs.port_context != ''
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -102,7 +107,7 @@ jobs:
             URL: ${{ steps.create_repo.outputs.repo_url }}
 
       - name: Create Entity in Port
-        if: success()
+        if: success() && inputs.port_context != ''
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -115,11 +120,11 @@ jobs:
               "name": "${{ inputs.repository_name }}",
               "description": "${{ inputs.repo_description }}",
               "url": "${{ steps.create_repo.outputs.repo_url }}",
-              "defaultBranch": "main"
+              "defaultBranch": "${{ steps.create_repo.outputs.default_branch }}"
             }
 
       - name: Update Port Run - Success
-        if: success()
+        if: success() && inputs.port_context != ''
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -133,7 +138,7 @@ jobs:
             Visit: ${{ steps.create_repo.outputs.repo_url }}
 
       - name: Inform Port - Workflow Failed
-        if: failure()
+        if: failure() && inputs.port_context != ''
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -150,3 +155,6 @@ jobs:
         run: |
           echo "Workflow completed"
           echo "Status: ${{ job.status }}"
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "Repository URL: ${{ steps.create_repo.outputs.repo_url }}"
+          fi
