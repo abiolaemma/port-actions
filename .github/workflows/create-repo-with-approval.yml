@@ -1,114 +1,168 @@
-name: Create GitHub Repository with Approval
+name: Create Repository with Approval
 
 on:
   workflow_dispatch:
     inputs:
       repository_name:
-        description: 'Name of the repository to create'
+        description: 'Repository name'
         required: true
         type: string
       repo_description:
-        description: 'Description of the repository'
+        description: 'Repository description'
         required: false
         type: string
       port_context:
-        description: 'Port context (automatically provided by Port)'
+        description: 'Port context'
         required: true
         type: string
 
 jobs:
-  # Step 1: Request Approval
   request-approval:
     runs-on: ubuntu-latest
     outputs:
-      approved: ${{ steps.approval.outputs.approved }}
+      issue_number: ${{ steps.create-issue.outputs.result }}
     steps:
-      - name: Parse Port Context
-        id: parse-context
-        run: |
-          echo "Port Context: ${{ github.event.inputs.port_context }}"
-          echo "${{ github.event.inputs.port_context }}" > port_context.json
-          cat port_context.json
-
-      - name: Notify Port - Waiting for Approval
-        uses: port-labs/port-github-action@v1
+      - name: Create Approval Issue
+        id: create-issue
+        uses: actions/github-script@v7
         with:
-          clientId: ${{ secrets.PORT_CLIENT_ID }}
-          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: PATCH_RUN
-          runId: ${{ fromJson(github.event.inputs.port_context).runId }}
-          logMessage: |
-            ⏳ Waiting for approval to create repository: ${{ github.event.inputs.repository_name }}
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Approve: Create repository "${{ github.event.inputs.repository_name }}"`,
+              body: `### Repository Creation Request
+              
+**Name:** \`${{ github.event.inputs.repository_name }}\`
+**Description:** ${{ github.event.inputs.repo_description }}
+**Requested by:** @${{ github.actor }}
 
-      - name: Request Manual Approval
-        uses: trstringer/manual-approval@v1
-        id: approval
+---
+
+**To approve:** Comment \`/approve\`
+**To deny:** Comment \`/deny\``,
+              labels: ['approval-required']
+            });
+            
+            console.log('Created approval issue:', issue.data.number);
+            return issue.data.number;
+
+      - name: Wait for Approval
+        uses: actions/github-script@v7
+        timeout-minutes: 60
         with:
-          secret: ${{ github.TOKEN }}
-          approvers: abiolaemma2026  # Replace with actual approver usernames
-          minimum-approvals: 1
-          issue-title: "Approve Repository Creation: ${{ github.event.inputs.repository_name }}"
-          issue-body: |
-            ## Repository Creation Request
+          script: |
+            const issueNumber = ${{ steps.create-issue.outputs.result }};
             
-            **Repository Name:** `${{ github.event.inputs.repository_name }}`
-            **Description:** ${{ github.event.inputs.repo_description }}
-            
-            **Requested by:** ${{ github.actor }}
-            **Port Run ID:** ${{ fromJson(github.event.inputs.port_context).runId }}
-            
-            ---
-            
-            Please review and approve this repository creation request.
-            
-            To approve, comment `approve` on this issue.
-            To deny, comment `deny` on this issue.
+            while (true) {
+              const comments = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+              
+              for (const comment of comments.data) {
+                const body = comment.body.trim().toLowerCase();
+                
+                if (body === '/approve') {
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    state: 'closed'
+                  });
+                  
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    body: '✅ **Approved** - Creating repository...'
+                  });
+                  
+                  return true;
+                }
+                
+                if (body === '/deny') {
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    state: 'closed'
+                  });
+                  
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    body: '❌ **Denied** - Request cancelled'
+                  });
+                  
+                  throw new Error('Request denied');
+                }
+              }
+              
+              await new Promise(resolve => setTimeout(resolve, 10000));
+            }
 
-  # Step 2: Create Repository (only if approved)
   create-repository:
     runs-on: ubuntu-latest
     needs: request-approval
-    if: needs.request-approval.outputs.approved == 'true'
+    if: success()
     steps:
-      - name: Notify Port - Creating Repository
+      - name: Create Repository
+        id: create-repo
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const repoName = '${{ github.event.inputs.repository_name }}';
+            const repoDesc = '${{ github.event.inputs.repo_description }}';
+            
+            // Check account type
+            const owner = await github.rest.users.getByUsername({
+              username: context.repo.owner
+            });
+            
+            let repo;
+            
+            if (owner.data.type === 'Organization') {
+              repo = await github.rest.repos.createInOrg({
+                org: context.repo.owner,
+                name: repoName,
+                description: repoDesc,
+                private: false,
+                auto_init: true
+              });
+            } else {
+              repo = await github.rest.repos.createForAuthenticatedUser({
+                name: repoName,
+                description: repoDesc,
+                private: false,
+                auto_init: true
+              });
+            }
+            
+            console.log('✅ Repository created:', repo.data.html_url);
+            core.setOutput('repo_url', repo.data.html_url);
+            return repo.data.html_url;
+
+      - name: Update Port Entity
+        if: success()
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: PATCH_RUN
-          runId: ${{ fromJson(github.event.inputs.port_context).runId }}
-          logMessage: |
-            ✅ Approved! Creating repository: ${{ github.event.inputs.repository_name }}
+          operation: UPSERT
+          identifier: ${{ github.event.inputs.repository_name }}
+          title: ${{ github.event.inputs.repository_name }}
+          blueprint: githubRepository
+          properties: |
+            {
+              "url": "${{ steps.create-repo.outputs.repo_url }}",
+              "description": "${{ github.event.inputs.repo_description }}"
+            }
 
-      - name: Create GitHub Repository
-        id: create-repo
-        run: |
-          REPO_NAME="${{ github.event.inputs.repository_name }}"
-          REPO_DESC="${{ github.event.inputs.repo_description }}"
-          ORG_NAME="${{ github.repository_owner }}"
-          
-          # Create repository using GitHub API
-          RESPONSE=$(curl -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            https://api.github.com/orgs/${ORG_NAME}/repos \
-            -d "{\"name\":\"${REPO_NAME}\",\"description\":\"${REPO_DESC}\",\"private\":false,\"auto_init\":true}")
-          
-          echo "Response: $RESPONSE"
-          
-          # Extract repository URL
-          REPO_URL=$(echo $RESPONSE | jq -r '.html_url')
-          echo "repo_url=$REPO_URL" >> $GITHUB_OUTPUT
-          
-          if [ "$REPO_URL" == "null" ]; then
-            echo "Failed to create repository"
-            exit 1
-          fi
-          
-          echo "Repository created successfully: $REPO_URL"
-
-      - name: Report to Port - Success
+      - name: Notify Port - Success
         if: success()
         uses: port-labs/port-github-action@v1
         with:
@@ -118,25 +172,9 @@ jobs:
           runId: ${{ fromJson(github.event.inputs.port_context).runId }}
           logMessage: |
             ✅ Repository created successfully!
-            🔗 Repository URL: ${{ steps.create-repo.outputs.repo_url }}
+            🔗 ${{ steps.create-repo.outputs.repo_url }}
 
-      - name: Create Port Entity
-        if: success()
-        uses: port-labs/port-github-action@v1
-        with:
-          clientId: ${{ secrets.PORT_CLIENT_ID }}
-          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: UPSERT
-          identifier: ${{ github.event.inputs.repository_name }}
-          title: ${{ github.event.inputs.repository_name }}
-          blueprint: service  # Change to your blueprint identifier
-          properties: |
-            {
-              "url": "${{ steps.create-repo.outputs.repo_url }}",
-              "description": "${{ github.event.inputs.repo_description }}"
-            }
-
-      - name: Report to Port - Failure
+      - name: Notify Port - Failure
         if: failure()
         uses: port-labs/port-github-action@v1
         with:
@@ -145,20 +183,4 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ fromJson(github.event.inputs.port_context).runId }}
           logMessage: |
-            ❌ Failed to create repository: ${{ github.event.inputs.repository_name }}
-
-  # Step 3: Handle Denial
-  handle-denial:
-    runs-on: ubuntu-latest
-    needs: request-approval
-    if: needs.request-approval.outputs.approved != 'true'
-    steps:
-      - name: Notify Port - Request Denied
-        uses: port-labs/port-github-action@v1
-        with:
-          clientId: ${{ secrets.PORT_CLIENT_ID }}
-          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: PATCH_RUN
-          runId: ${{ fromJson(github.event.inputs.port_context).runId }}
-          logMessage: |
-            ❌ Repository creation request was denied
+            ❌ Failed to create repository
