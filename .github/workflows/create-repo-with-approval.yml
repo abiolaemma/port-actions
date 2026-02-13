@@ -33,14 +33,14 @@ jobs:
               title: `Approve: Create repository "${{ github.event.inputs.repository_name }}"`,
               body: `### Repository Creation Request
               
-**Name:** \`${{ github.event.inputs.repository_name }}\`
-**Description:** ${{ github.event.inputs.repo_description }}
-**Requested by:** @${{ github.actor }}
-
----
-
-**To approve:** Comment \`/approve\`
-**To deny:** Comment \`/deny\``,
+            **Name:** \`${{ github.event.inputs.repository_name }}\`
+            **Description:** ${{ github.event.inputs.repo_description }}
+            **Requested by:** @${{ github.actor }}
+            
+            ---
+            
+            **To approve:** Comment \`/approve\`
+            **To deny:** Comment \`/deny\``,
               labels: ['approval-required']
             });
             
@@ -118,7 +118,6 @@ jobs:
             const repoName = '${{ github.event.inputs.repository_name }}';
             const repoDesc = '${{ github.event.inputs.repo_description }}';
             
-            // Check account type
             const owner = await github.rest.users.getByUsername({
               username: context.repo.owner
             });
