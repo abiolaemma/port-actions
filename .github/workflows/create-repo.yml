@@ -1,100 +1,101 @@
-name: Create New Repository
+name: Create GitHub Repository
 
 on:
   workflow_dispatch:
     inputs:
       repo_name:
-        description: 'Repository name'
+        description: 'Name of the repository to create'
         required: true
         type: string
       description:
         description: 'Repository description'
         required: false
         type: string
-        default: 'Created via Port and GitHub Actions'
       private:
         description: 'Make repository private'
         required: false
-        type: string
-        default: 'false'
+        type: boolean
+        default: false
       initialize_readme:
         description: 'Initialize with README'
         required: false
-        type: string
-        default: 'true'
+        type: boolean
+        default: true
       port_run_id:
-        description: 'Port run ID for status updates'
-        required: false
+        description: 'Port run ID'
+        required: true
         type: string
-
-permissions:
-  contents: write
-  repos: write
 
 jobs:
-  create-repo:
+  create-repository:
     runs-on: ubuntu-latest
     steps:
-      - name: Notify Port - Started
-        if: inputs.port_run_id != ''
+      - name: Inform Port of workflow start
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: PATCH_RUN
           runId: ${{ inputs.port_run_id }}
-          logMessage: "🚀 Starting repository creation for ${{ inputs.repo_name }}..."
+          logMessage: |
+            Starting repository creation workflow for: ${{ inputs.repo_name }} 🚀
 
-      - name: Create repository
+      - name: Create GitHub Repository
         id: create_repo
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO_NAME: ${{ inputs.repo_name }}
-          DESCRIPTION: ${{ inputs.description }}
-          PRIVATE: ${{ inputs.private }}
-          INIT_README: ${{ inputs.initialize_readme }}
-        run: |
-          # Build the command
-          CMD="gh repo create abiolaemma2026/${REPO_NAME}"
-          CMD="$CMD --description '${DESCRIPTION}'"
-          
-          # Handle private flag (convert string to boolean logic)
-          if [ "${PRIVATE}" = "true" ]; then
-            CMD="$CMD --private"
-          else
-            CMD="$CMD --public"
-          fi
-          
-          # Handle README flag (convert string to boolean logic)
-          if [ "${INIT_README}" = "true" ]; then
-            CMD="$CMD --add-readme"
-          fi
-          
-          # Execute (removed deprecated --confirm flag)
-          echo "Executing: $CMD"
-          eval $CMD
-          
-          echo "repo_url=https://github.com/abiolaemma2026/${REPO_NAME}" >> $GITHUB_OUTPUT
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            try {
+              const repoName = '${{ inputs.repo_name }}';
+              const description = '${{ inputs.description }}' || '';
+              const isPrivate = '${{ inputs.private }}' === 'true';
+              const initReadme = '${{ inputs.initialize_readme }}' === 'true';
+              
+              console.log(`Creating repository: ${repoName}`);
+              console.log(`Private: ${isPrivate}, Initialize README: ${initReadme}`);
+              
+              const response = await github.rest.repos.createInOrg({
+                org: context.repo.owner,
+                name: repoName,
+                description: description,
+                private: isPrivate,
+                auto_init: initReadme
+              });
+              
+              console.log(`✅ Repository created successfully: ${response.data.html_url}`);
+              
+              core.setOutput('repo_url', response.data.html_url);
+              core.setOutput('repo_full_name', response.data.full_name);
+              core.setOutput('repo_id', response.data.id);
+              
+              return response.data;
+            } catch (error) {
+              core.setFailed(`Failed to create repository: ${error.message}`);
+              throw error;
+            }
 
-      - name: Notify Port - Success
-        if: success() && inputs.port_run_id != ''
+      - name: Report success to Port
+        if: success()
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: PATCH_RUN
           runId: ${{ inputs.port_run_id }}
-          status: "SUCCESS"
-          logMessage: "✅ Repository created successfully!"
-          link: ${{ steps.create_repo.outputs.repo_url }}
+          logMessage: |
+            ✅ Repository created successfully!
+            🔗 URL: ${{ steps.create_repo.outputs.repo_url }}
+            📦 Full Name: ${{ steps.create_repo.outputs.repo_full_name }}
 
-      - name: Notify Port - Failure
-        if: failure() && inputs.port_run_id != ''
+      - name: Report failure to Port
+        if: failure()
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: PATCH_RUN
           runId: ${{ inputs.port_run_id }}
-          status: "FAILURE"
-          logMessage: "❌ Failed to create repository. Check workflow logs for details."
+          logMessage: |
+            ❌ Failed to create repository: ${{ inputs.repo_name }}
+            Check the workflow logs for details.
