@@ -1,160 +1,92 @@
-name: Create GitHub Repository (No Approval)
+name: Create New Repository
 
 on:
   workflow_dispatch:
     inputs:
-      repository_name:
-        description: 'Name of the new repository'
+      repo_name:
+        description: 'Repository name'
         required: true
         type: string
-      repo_description:
-        description: 'Brief description of the repository'
+      description:
+        description: 'Repository description'
         required: false
         type: string
-      port_context:
-        description: 'Port context (automatically provided)'
+        default: 'Created via Port and GitHub Actions'
+      private:
+        description: 'Make repository private'
+        required: false
+        type: boolean
+        default: false
+      initialize_readme:
+        description: 'Initialize with README'
+        required: false
+        type: boolean
+        default: true
+      port_run_id:
+        description: 'Port run ID for status updates'
         required: false
         type: string
 
 jobs:
-  create-repository:
+  create-repo:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Log starting of workflow
-        run: |
-          echo "Starting repository creation workflow"
-          echo "Repository name: ${{ inputs.repository_name }}"
-          echo "Description: ${{ inputs.repo_description }}"
-
-      - name: Inform Port - Workflow Started
-        if: inputs.port_context != ''
+      - name: Notify Port - Started
+        if: inputs.port_run_id != ''
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: PATCH_RUN
-          runId: ${{ fromJson(inputs.port_context).runId }}
-          logMessage: |
-            Starting repository creation workflow... 🚀
-            Repository: ${{ inputs.repository_name }}
+          runId: ${{ inputs.port_run_id }}
+          logMessage: "🚀 Starting repository creation for ${{ inputs.repo_name }}..."
 
-      - name: Create GitHub Repository
+      - name: Create repository
         id: create_repo
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GH_PAT }}
-          script: |
-            const repoName = '${{ inputs.repository_name }}';
-            const repoDescription = '${{ inputs.repo_description }}' || 'Repository created via Port';
-            const org = 'abiolaemma2026';
-            
-            console.log(`Creating repository: ${repoName}`);
-            console.log(`Organization: ${org}`);
-            console.log(`Description: ${repoDescription}`);
-            
-            try {
-              // Create the repository
-              const response = await github.rest.repos.createInOrg({
-                org: org,
-                name: repoName,
-                description: repoDescription,
-                private: false,
-                auto_init: true,
-                gitignore_template: 'Node',
-                license_template: 'mit'
-              });
-              
-              console.log(`✅ Repository created successfully!`);
-              console.log(`Repository URL: ${response.data.html_url}`);
-              console.log(`Clone URL: ${response.data.clone_url}`);
-              console.log(`Default Branch: ${response.data.default_branch}`);
-              
-              // Set outputs for later steps
-              core.setOutput('repo_url', response.data.html_url);
-              core.setOutput('repo_full_name', response.data.full_name);
-              core.setOutput('repo_id', response.data.id);
-              core.setOutput('default_branch', response.data.default_branch);
-              
-              return response.data;
-              
-            } catch (error) {
-              console.error(`❌ Failed to create repository`);
-              console.error(`Error: ${error.message}`);
-              
-              if (error.status === 422) {
-                console.error('Repository might already exist or name is invalid');
-              } else if (error.status === 403) {
-                console.error('Permission denied - check your GitHub token permissions');
-              } else if (error.status === 404) {
-                console.error('Organization not found or token lacks access');
-              }
-              
-              throw error;
-            }
-
-      - name: Inform Port - Repository Created
-        if: success() && inputs.port_context != ''
-        uses: port-labs/port-github-action@v1
-        with:
-          clientId: ${{ secrets.PORT_CLIENT_ID }}
-          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: PATCH_RUN
-          runId: ${{ fromJson(inputs.port_context).runId }}
-          logMessage: |
-            ✅ Repository created successfully!
-            Repository: ${{ steps.create_repo.outputs.repo_full_name }}
-            URL: ${{ steps.create_repo.outputs.repo_url }}
-
-      - name: Create Entity in Port
-        if: success() && inputs.port_context != ''
-        uses: port-labs/port-github-action@v1
-        with:
-          clientId: ${{ secrets.PORT_CLIENT_ID }}
-          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: UPSERT
-          identifier: ${{ inputs.repository_name }}
-          blueprint: githubRepository
-          properties: |
-            {
-              "name": "${{ inputs.repository_name }}",
-              "description": "${{ inputs.repo_description }}",
-              "url": "${{ steps.create_repo.outputs.repo_url }}",
-              "defaultBranch": "${{ steps.create_repo.outputs.default_branch }}"
-            }
-
-      - name: Update Port Run - Success
-        if: success() && inputs.port_context != ''
-        uses: port-labs/port-github-action@v1
-        with:
-          clientId: ${{ secrets.PORT_CLIENT_ID }}
-          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: PATCH_RUN
-          runId: ${{ fromJson(inputs.port_context).runId }}
-          status: SUCCESS
-          logMessage: |
-            🎉 Workflow completed successfully!
-            Repository ${{ inputs.repository_name }} is ready to use.
-            Visit: ${{ steps.create_repo.outputs.repo_url }}
-
-      - name: Inform Port - Workflow Failed
-        if: failure() && inputs.port_context != ''
-        uses: port-labs/port-github-action@v1
-        with:
-          clientId: ${{ secrets.PORT_CLIENT_ID }}
-          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: PATCH_RUN
-          runId: ${{ fromJson(inputs.port_context).runId }}
-          status: FAILURE
-          logMessage: |
-            ❌ Failed to create repository
-            Check the workflow logs for details.
-
-      - name: Log completion
-        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          echo "Workflow completed"
-          echo "Status: ${{ job.status }}"
-          if [ "${{ job.status }}" == "success" ]; then
-            echo "Repository URL: ${{ steps.create_repo.outputs.repo_url }}"
+          # Build the command
+          CMD="gh repo create abiolaemma2026/${{ inputs.repo_name }}"
+          CMD="$CMD --description '${{ inputs.description }}'"
+          
+          if [ "${{ inputs.private }}" = "true" ]; then
+            CMD="$CMD --private"
+          else
+            CMD="$CMD --public"
           fi
+          
+          if [ "${{ inputs.initialize_readme }}" = "true" ]; then
+            CMD="$CMD --add-readme"
+          fi
+          
+          CMD="$CMD --confirm"
+          
+          # Execute
+          echo "Executing: $CMD"
+          eval $CMD
+          
+          echo "repo_url=https://github.com/abiolaemma2026/${{ inputs.repo_name }}" >> $GITHUB_OUTPUT
+
+      - name: Notify Port - Success
+        if: success() && inputs.port_run_id != ''
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ inputs.port_run_id }}
+          status: "SUCCESS"
+          logMessage: "✅ Repository created successfully!"
+          link: ${{ steps.create_repo.outputs.repo_url }}
+
+      - name: Notify Port - Failure
+        if: failure() && inputs.port_run_id != ''
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ inputs.port_run_id }}
+          status: "FAILURE"
+          logMessage: "❌ Failed to create repository. Check workflow logs for details."
